@@ -1,0 +1,463 @@
+//단어장만들기AK
+
+https://www.notion.so/2-830a083659c449a9ad7f26a8f2c1e9f0
+
+
+##app.py
+from flask import Flask, render_template, request, jsonify, redirect, url_for
+from pymongo import MongoClient
+import requests
+
+app = Flask(__name__)
+
+client = MongoClient('mongodb://아이디:비밀번호@내 아이피', 27017)
+db = client.dbsparta_plus_week2
+
+
+@app.route('/')
+def main():
+    msg = request.args.get("msg")
+
+    # DB에서 저장된 단어 찾아서 HTML에 나타내기
+    words = list(db.words.find({}, {"_id": False}))
+    return render_template("index.html", words=words, msg=msg)
+
+
+@app.route('/detail/<keyword>')
+def detail(keyword):
+    # API에서 단어 뜻 찾아서 결과 보내기
+    status_receive = request.args.get("status_give", "old")
+    r = requests.get(f"https://owlbot.info/api/v4/dictionary/{keyword}",
+                     headers={"Authorization": "Token [내 토큰]"})
+    if r.status_code != 200:
+        return redirect(url_for("main", msg="Word not found in dictionary; Try another word"))
+    result = r.json()
+    print(result)
+    return render_template("detail.html", word=keyword, result=result, status=status_receive)
+
+
+@app.route('/api/save_word', methods=['POST'])
+def save_word():
+    # 단어 저장하기
+    word_receive = request.form['word_give']
+    definition_receive = request.form['definition_give']
+    doc = {"word": word_receive, "definition": definition_receive}
+    db.words.insert_one(doc)
+    return jsonify({'result': 'success', 'msg': f'word "{word_receive}" saved'})
+
+
+@app.route('/api/delete_word', methods=['POST'])
+def delete_word():
+    # 단어 삭제하기
+    word_receive = request.form['word_give']
+    db.words.delete_one({"word": word_receive})
+    db.examples.delete_many({"word": word_receive})
+    return jsonify({'result': 'success', 'msg': f'word "{word_receive}" deleted'})
+
+
+@app.route('/api/get_examples', methods=['GET'])
+def get_exs():
+    word_receive = request.args.get("word_give")
+    result = list(db.examples.find({"word": word_receive}, {'_id': 0}))
+    print(word_receive, len(result))
+
+    return jsonify({'result': 'success', 'examples': result})
+
+
+@app.route('/api/save_ex', methods=['POST'])
+def save_ex():
+    word_receive = request.form['word_give']
+    example_receive = request.form['example_give']
+    doc = {"word": word_receive, "example": example_receive}
+    db.examples.insert_one(doc)
+    return jsonify({'result': 'success', 'msg': f'example "{example_receive}" saved'})
+
+
+@app.route('/api/delete_ex', methods=['POST'])
+def delete_ex():
+    word_receive = request.form['word_give']
+    number_receive = int(request.form["number_give"])
+    example = list(db.examples.find({"word": word_receive}))[number_receive]["example"]
+    print(word_receive, example)
+    db.examples.delete_one({"word": word_receive, "example": example})
+    return jsonify({'result': 'success', 'msg': f'example #{number_receive} of "{word_receive}" deleted'})
+
+
+if __name__ == '__main__':
+    app.run('0.0.0.0', port=5000, debug=True)
+    
+    
+    
+    
+##index.html
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <title>Sparta Vocabulary Notebook</title>
+        <meta property="og:title" content="Sparta Vocabulary Notebook"/>
+        <meta property="og:description" content="mini project for Web Plus"/>
+        <meta property="og:image" content="{{ url_for('static', filename='logo_red.png') }}"/>
+        <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+        <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+        <!-- Bootstrap CSS -->
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css"
+              integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm"
+              crossorigin="anonymous">
+        <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+
+        <link href='{{ url_for("static", filename="mystyle.css") }}' rel="stylesheet">
+        <!-- Optional JavaScript -->
+        <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"
+                integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q"
+                crossorigin="anonymous"></script>
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"
+                integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl"
+                crossorigin="anonymous"></script>
+        <style>
+            .search-box {
+                width: 70%;
+                margin: 50px auto;
+                max-width: 700px;
+            }
+
+            .table {
+                width: 80%;
+                max-width: 800px;
+                margin: auto;
+                table-layout: fixed;
+            }
+
+            .table th {
+                border-top-style: none;
+            }
+
+            td {
+                background-color: white;
+                text-overflow: ellipsis;
+                overflow: hidden;
+                white-space: nowrap;
+            }
+
+            td > a, a:visited, a:hover, a:active {
+                color: black;
+            }
+
+            tr.highlight > td {
+                background-color: #e8344e;
+                color: white;
+            }
+
+            tr.highlight a {
+                color: white;
+            }
+
+            thead:first-child tr:first-child th:first-child {
+                border-radius: 10px 0 0 0;
+            }
+
+            thead:first-child tr:first-child th:last-child {
+                border-radius: 0 10px 0 0;
+            }
+
+            tbody:last-child tr:last-child td:first-child {
+                border-radius: 0 0 0 10px;
+            }
+
+            tbody:last-child tr:last-child td:last-child {
+                border-radius: 0 0 10px 0;
+            }
+        </style>
+        <script>
+            {% if msg %}
+                alert("{{ msg }}")
+            {% endif %}
+            let words = {{ words|tojson }};
+            let word_list = [];
+            for (let i = 0; i < words.length; i++) {
+                word_list.push(words[i]["word"])
+            }
+
+            function find_word() {
+                let word = $("#input-word").val().toLowerCase();
+                if (word == "") {
+                    alert("please write something first :)")
+                    return
+                }
+                if (word_list.includes(word)) {
+                    $(`#word-${word}`).addClass('highlight').siblings().removeClass('highlight');
+                    $(`#word-${word}`).get(0).scrollIntoView();
+                } else {
+                    window.location.href = `/detail/${word}?status_give=new`
+                }
+            }
+
+        </script>
+    </head>
+    <body>
+        <div class="wrap">
+            <div class="banner" onclick="window.location.href = '/'">
+            </div>
+            <div class="search-box d-flex justify-content-center">
+                <input id="input-word" class="form-control" style="margin-right: 0.5rem">
+                <button class="btn btn-light" onclick="find_word()"><i class="fa fa-search"></i></button>
+            </div>
+            <table class="table">
+                <thead class="thead-light">
+                    <tr>
+                        <th scope="col" style="width:30%">WORD</th>
+                        <th scope="col">MEANING</th>
+
+                    </tr>
+                </thead>
+                <tbody id="tbody-box">
+                    {% for word in words %}
+                        <tr id="word-{{ word.word }}">
+                            <td><a href="/detail/{{ word.word }}?status_give=old">{{ word.word }}</a></td>
+                            <td>{{ word.definition|safe }}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </body>
+</html>
+
+## detail.html
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <title>Sparta Vocabulary Notebook</title>
+        <meta property="og:title" content="Sparta Vocabulary Notebook"/>
+        <meta property="og:description" content="mini project for Web Plus"/>
+        <meta property="og:image" content="{{ url_for('static', filename='logo_red.png') }}"/>
+        <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+        <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+        <!-- Bootstrap CSS -->
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css"
+              integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm"
+              crossorigin="anonymous">
+        <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+        <link href='{{ url_for("static", filename="mystyle.css") }}' rel="stylesheet">
+        <!-- Optional JavaScript -->
+        <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"
+                integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q"
+                crossorigin="anonymous"></script>
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"
+                integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl"
+                crossorigin="anonymous"></script>
+        <style>
+
+            span.example {
+                color: gray;
+                font-size: 14px;
+            }
+
+            .btn-sparta {
+                color: #fff;
+                background-color: #e8344e;
+                border-color: #e8344e;
+            }
+
+            .btn-outline-sparta {
+                color: #e8344e;
+                background-color: transparent;
+                background-image: none;
+                border-color: #e8344e;
+            }
+        </style>
+        <script>
+            let word = "{{ word }}"
+            $(document).ready(function () {
+                {% if status=="old" %}
+                    get_examples()
+                {% endif %}
+            })
+
+            function save_word() {
+                $.ajax({
+                    type: "POST",
+                    url: `/api/save_word`,
+                    data: {
+                        word_give: "{{ word }}",
+                        definition_give: "{{ result.definitions[0].definition }}"
+                    },
+                    success: function (response) {
+                        alert(response["msg"])
+                        window.location.href = "/detail/{{ word }}?status=old"
+                    }
+                });
+            }
+
+            function delete_word() {
+                $.ajax({
+                    type: "POST",
+                    url: `/api/delete_word`,
+                    data: {
+                        word_give: '{{ word }}',
+                    },
+                    success: function (response) {
+                        alert(response["msg"])
+                        window.location.href = "/"
+                    }
+                });
+            }
+
+            function get_examples() {
+                $("#example-list").empty()
+                $.ajax({
+                    type: "GET",
+                    url: `/api/get_examples?word_give=${word}`,
+                    data: {},
+                    success: function (response) {
+                        let examples = response["examples"];
+                        for (let i = 0; i < examples.length; i++) {
+                            let example = examples[i]["example"];
+                            console.log(example)
+                            let html_temp = `<li id="ex-${i}">${example}&nbsp;&nbsp;&nbsp;<a
+                            href="javascript:delete_ex(${i})">delete</a></li>`
+                            $("#example-list").append(html_temp)
+                        }
+                    }
+                });
+            }
+
+            function add_ex() {
+                let new_ex = $('#new-example').val();
+                if (!new_ex.toLowerCase().includes(word.toLowerCase())) {
+                    alert(`the word '${word}' is not included.`);
+                    return;
+                }
+                console.log(new_ex)
+                $.ajax({
+                    type: "POST",
+                    url: `/api/save_ex`,
+                    data: {
+                        word_give: word,
+                        example_give: new_ex
+                    },
+                    success: function (response) {
+                        get_examples();
+                        $('#new-example').val("");
+                    }
+                });
+
+            }
+
+            function delete_ex(i) {
+                console.log("deleting", i)
+                $.ajax({
+                    type: "POST",
+                    url: `/api/delete_ex`,
+                    data: {
+                        word_give: word,
+                        number_give: i
+                    },
+                    success: function (response) {
+                        get_examples()
+                    }
+                });
+            }
+
+        </script>
+    </head>
+    <body>
+        <div class="wrap">
+            <div class="banner" onclick="window.location.href = '/'">
+            </div>
+            <div class="container">
+                <div class="d-flex justify-content-between align-items-end">
+                    <div>
+                        <h1 id="word" style="display: inline;">{{ result.word }}</h1>
+                        {% if result.pronunciation %}
+                            <h5 id="pronunciation" style="display: inline;">/{{ result.pronunciation }}/</h5>
+                        {% endif %}
+                    </div>
+                    {% if status=="new" %}
+                        <button id="btn-save" class="btn btn-outline-sparta btn-lg" onclick="save_word()"><i
+                                class="fa fa-floppy-o"
+                                aria-hidden="true"></i></button>
+                    {% else %}
+                        <button id="btn-delete" class="btn btn-sparta btn-lg" onclick="delete_word()"><i
+                                class="fa fa-trash-o"
+                                aria-hidden="true"></i></button>
+                    {% endif %}
+                </div>
+                <hr>
+                <div id="definitions">
+                    {% set definitions = result.definitions %}
+                    {% for definition in definitions %}
+                        <div style="padding:10px">
+                            <i>{{ definition.type }}</i>
+                            <br>{{ definition.definition.encode('ascii', 'ignore').decode('utf-8') }}<br>
+                            {% if definition.example %}
+                                <span class="example">{{ definition.example.encode('ascii', 'ignore').decode('utf-8') }}</span>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% if status=="old" %}
+                <div id="examples" class="container">
+                    <h3 style="text-align: center;margin-bottom:1rem">Write your own sentences!</h3>
+                    <ul id="example-list">
+                        <li id="ex-0">This sentence contains the word 'word'.&nbsp;&nbsp;&nbsp;<a
+                                href="javascript:delete_ex(0)">delete</a></li>
+                        <li id="ex-1">I don't like using the MS Word program.&nbsp;&nbsp;&nbsp;<a
+                                href="javascript:delete_ex(1)">delete</a></li>
+                    </ul>
+                    <div class="d-flex justify-content-between" style="margin-left:20px;">
+                        <input id="new-example" class="form-control form-control-sm" style="margin-right: 0.5rem">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="add_ex()">add</button>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </body>
+</html>
+
+
+
+###style.css
+
+.wrap {
+    background-color: RGBA(232, 52, 78, 0.2);
+    min-height: 100vh;
+    padding-bottom: 50px;
+}
+
+.banner {
+    width: 100%;
+    height: 200px;
+
+    background-color: white;
+    background-image: url('logo_red.png');
+    background-position: center;
+    background-size: contain;
+    background-repeat: no-repeat;
+
+    cursor: pointer;
+}
+
+.container {
+    width: 80%;
+    max-width: 800px;
+    margin: 30px auto;
+    padding: 20px;
+    background-color: white;
+
+    border: solid 1px gray;
+    border-radius: 10px;
+}
